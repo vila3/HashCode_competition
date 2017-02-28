@@ -1,10 +1,9 @@
 import cPickle as pickle
-
-import numpy as np
 from os import mkdir
 from os.path import isfile, exists
+import shutil
 
-import sys
+import numpy as np
 
 
 def pickles_files_path(file_name, file_path=''):
@@ -14,8 +13,8 @@ def pickles_files_path(file_name, file_path=''):
 def main():
     print 'Start...'
 
-    # input_file = raw_input('Input file: ')
-    input_file = 'input/kittens.in'
+    input_file = raw_input('Input file: ')
+    # input_file = 'input/kittens.in'
     file_name = input_file.split('/')[-1].split('.')[0]
 
     pickle_files_path = {
@@ -25,13 +24,18 @@ def main():
         'calculation_objects': pickles_files_path("calculation_objects", file_path=file_name),
     }
 
+
     f = open(input_file, 'r')
     f_list = f.readlines()
 
     first_line = f_list.pop(0)[:-1].split(' ')
 
-    if not exists('tmp/'+file_name):
-        mkdir('tmp/'+file_name)
+    use_cached_data = (raw_input('Use cached data? (y/n): ') == 'y')
+    if exists('tmp/' + file_name) and not use_cached_data:
+        shutil.rmtree('tmp/'+file_name)
+
+    if not exists('tmp/' + file_name):
+        mkdir('tmp/' + file_name)
 
     if isfile(pickle_files_path['infos']):
         infos = pickle.load(open(pickle_files_path['infos'], "rb"))
@@ -56,7 +60,8 @@ def main():
 
         data = np.load(pickle_files_path['endpoints_objects'])
 
-        if not (('table_endpoints_requests' and 'endpoints_latency_data_center' and 'table_endpoints_caches') in data.keys()):
+        if not ((
+                        'table_endpoints_requests' and 'endpoints_latency_data_center' and 'table_endpoints_caches') in data.keys()):
             endpoints_latency_data_center = data['endpoints_latency_data_center']
             table_endpoints_caches = data['table_endpoints_caches']
             table_endpoints_requests = data['table_endpoints_requests']
@@ -103,7 +108,7 @@ def main():
 
     print 'Data loaded!'
 
-    if data is not None and raw_input('Use cached data? (y/n) ') == 'y':
+    if data is not None and use_cached_data:
         data = np.load(pickle_files_path['calculation_objects'])
         matrix_caches_requests = data['matrix_caches_requests']
     else:
@@ -122,30 +127,46 @@ def main():
         print 'Almost done...'
         np.savez(pickle_files_path['calculation_objects'], matrix_caches_requests=matrix_caches_requests)
 
-    non_zeros_index = np.array(np.nonzero(matrix_caches_requests))
-    min_index_non_zero = np.argmin(matrix_caches_requests[np.nonzero(matrix_caches_requests)])
-    min_index = (non_zeros_index[0, min_index_non_zero], non_zeros_index[1, min_index_non_zero])
-    min_value = matrix_caches_requests[min_index]
-    max_index = np.unravel_index(np.argmax(matrix_caches_requests), matrix_caches_requests.shape)
-    max_value = matrix_caches_requests[max_index]
+    tmp_matrix = (-matrix_caches_requests).argsort(axis=None, kind='mergesort')
+    tmp_matrix = np.unravel_index(tmp_matrix, matrix_caches_requests.shape)
+    index_matrix_caches_requests_sorted = np.vstack(tmp_matrix).T
 
-    print 'All done!'
-    print
-    print 'Min value:', min_value, '(%d, %d)' % min_index
-    print 'Max value:', max_value, '(%d, %d)' % max_index
+    caches = np.zeros(infos['n_caches'])
+    caches_videos_id = [[] for i in range(infos['n_caches'])]
 
-    #TODO rankear conjunto video-cache e atribui-los
-    #TODO fazer output
+    print 'Writting output...'
+
+    for request_cache in index_matrix_caches_requests_sorted:
+        print matrix_caches_requests[request_cache]
+        if caches[request_cache[1]] + videos_sizes[request_cache[0]] <= infos['caches_size']:
+            caches[request_cache[1]] += videos_sizes[request_cache[0]]
+            (caches_videos_id[request_cache[1]]).append(request_cache[0])
+
+    f_out = open('output/' + file_name + '.out', 'w')
+    f_out.write(str(len(caches)) + '\n')
+    for i in range(0, len(caches_videos_id)):
+        f_out.write(str(i))
+        for videos_id in caches_videos_id[i]:
+            f_out.write(' ' + str(videos_id))
+        f_out.write('\n')
+
 
 if __name__ == '__main__':
     main()
 
 ############  tests ##############
 
-a = np.array([[1, 2, 4, 2],
-              [3, 2, 1, 1]])
-b = np.array([[2, 3],
-              [1, 2]])
+# a = np.array([[1, 2, 4, 2],
+#               [3, 2, 1, 1]])
+# b = np.array([[2, 3],
+#               [1, 2]])
+#
+# c = 15 * [3]
+# print c
+# f_out = open('output/1_output.out', 'w')
+# f_out.write(str(123) + '\n')
+# f_out.write(str(1) + ' ')
+
 #
 # matrix3d = np.zeros(shape=(2, 4), dtype='int')
 # for i in range(0, b.shape[1]):
