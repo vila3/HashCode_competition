@@ -60,14 +60,14 @@ def main():
 
         data = np.load(pickle_files_path['endpoints_objects'])
 
-        if not ((
-                        'table_endpoints_requests' and 'endpoints_latency_data_center' and 'table_endpoints_caches') in data.keys()):
-            endpoints_latency_data_center = data['endpoints_latency_data_center']
-            table_endpoints_caches = data['table_endpoints_caches']
-            table_endpoints_requests = data['table_endpoints_requests']
-
+        if not ('table_endpoints_requests' and 'endpoints_latency_data_center' and 'table_endpoints_caches') in data.keys():
             data.close()
             raise IOError
+
+        endpoints_latency_data_center = data['endpoints_latency_data_center']
+        table_endpoints_caches = data['table_endpoints_caches']
+        table_endpoints_requests = data['table_endpoints_requests']
+
         data.close()
 
         print 'Load from cache!'
