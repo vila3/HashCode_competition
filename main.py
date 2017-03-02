@@ -157,7 +157,7 @@ def main():
     import gc
     gc.collect()
 
-    caches = np.zeros(infos['n_caches'])
+    caches_ocup_size = np.zeros(infos['n_caches'])
     caches_videos_id = [[] for i in range(infos['n_caches'])]
 
     print 'Just some more calculations...'
@@ -179,8 +179,8 @@ def main():
             # print 'ok ;-)'
             continue
         # print table_ep_requests_cpy[:, request_cache[1]]
-        if caches[request_cache[1]] + videos_sizes[request_cache[0]] <= infos['caches_size']:
-            caches[request_cache[1]] += videos_sizes[request_cache[0]]
+        if caches_ocup_size[request_cache[1]] + videos_sizes[request_cache[0]] <= infos['caches_size']:
+            caches_ocup_size[request_cache[1]] += videos_sizes[request_cache[0]]
             (caches_videos_id[request_cache[1]]).append(request_cache[0])
             table_ep_requests[:, request_cache[0]][v_reqs_to_rm] = 0
             # print table_ep_requests_cpy[:, request_cache[1]]
@@ -188,7 +188,7 @@ def main():
     print 'Writting output...'
 
     f_out = open('output/' + file_name + '.out', 'w')
-    f_out.write(str(len(caches)) + '\n')
+    f_out.write(str(len(caches_ocup_size)) + '\n')
     for i in range(0, len(caches_videos_id)):
         f_out.write(str(i))
         for videos_id in caches_videos_id[i]:
