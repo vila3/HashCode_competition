@@ -14,7 +14,7 @@ def main():
     print 'Start...'
 
     input_file = raw_input('Input file: ')
-    # input_file = 'input/kittens.in'
+    # input_file = 'input/me_at_the_zoo.in'
     file_name = input_file.split('/')[-1].split('.')[0]
 
     pickle_files_path = {
@@ -24,15 +24,15 @@ def main():
         'calculation_objects': pickles_files_path("calculation_objects", file_path=file_name),
     }
 
-
     f = open(input_file, 'r')
     f_list = f.readlines()
 
     first_line = f_list.pop(0)[:-1].split(' ')
 
+    # ask if load data from caches files or from input files
     use_cached_data = (raw_input('Use cached data? (y/n): ') == 'y')
     if exists('tmp/' + file_name) and not use_cached_data:
-        shutil.rmtree('tmp/'+file_name)
+        shutil.rmtree('tmp/' + file_name)
 
     if not exists('tmp/' + file_name):
         mkdir('tmp/' + file_name)
@@ -52,21 +52,24 @@ def main():
         pickle.dump(infos, open(pickle_files_path['infos'], "wb"))
 
     data = None
-    table_endpoints_requests = None
+    table_ep_requests = None
     endpoints_latency_data_center = None
-    table_endpoints_caches = None
+    table_ep_cchs = None
+
+    # try to load data from caches files, if not caches files doesn't exists read data from input file
     try:
         videos_sizes = pickle.load(open(pickle_files_path['videos_sizes'], "rb"))
 
         data = np.load(pickle_files_path['endpoints_objects'])
 
-        if not ('table_endpoints_requests' and 'endpoints_latency_data_center' and 'table_endpoints_caches') in data.keys():
+        if not (
+                'table_endpoints_requests' and 'endpoints_latency_data_center' and 'table_endpoints_caches') in data.keys():
             data.close()
             raise IOError
 
         endpoints_latency_data_center = data['endpoints_latency_data_center']
-        table_endpoints_caches = data['table_endpoints_caches']
-        table_endpoints_requests = data['table_endpoints_requests']
+        table_ep_cchs = data['table_endpoints_caches']
+        table_ep_requests = data['table_endpoints_requests']
 
         data.close()
 
@@ -75,53 +78,70 @@ def main():
     except IOError:
         print 'Data not in cache, prepare to read file...'
 
+        # array with videos sizes
+        # size -> (1D) #videos
         videos_sizes = map(int, f_list.pop(0)[:-1].split(' '))
 
         pickle.dump(videos_sizes, open(pickle_files_path['videos_sizes'], "wb"))
 
+        # array with latencies from endpoints to data center
+        # access with enpoint id
+        # size -> (1D) #enpoints
         endpoints_latency_data_center = np.zeros(shape=infos['n_endpoints'])
 
-        table_endpoints_caches = np.zeros(shape=(infos['n_endpoints'], infos['n_caches']))
+        # table to relation endpoints latency to a specific cache
+        # size -> (2D) lines=#endpoints | columns=#caches
+        table_ep_cchs = np.zeros(shape=(infos['n_endpoints'], infos['n_caches']))
 
+        # go to over all endpoints informations
+        #   read latency from endpoint to datacenter and save on endpoints_latency_data_center
+        #   read latency from that endpoint to cache and save on table_ep_cchs
         for i in range(0, infos['n_endpoints']):
             endpoint_info = f_list.pop(0)[:-1].split(' ')
             endpoints_latency_data_center[i] = int(endpoint_info[0])
             for j in range(0, int(endpoint_info[1])):
                 cache = f_list.pop(0)[:-1].split(' ')
-                table_endpoints_caches[i, int(cache[0])] = int(cache[1])
+                table_ep_cchs[i, int(cache[0])] = int(cache[1])
 
         print "Reading...\n"
 
-        table_endpoints_requests = np.zeros(shape=(infos['n_endpoints'], infos['n_videos']))
+        # table to relation videos requests with enpoint from they come
+        # size -> (2D) lines=#endpoints | columns=#videos
+        table_ep_requests = np.zeros(shape=(infos['n_endpoints'], infos['n_videos']))
 
+        # go over all request descriptions
+        #   read request information
+        #   verify if video from that request has a size greater than cache size
+        #   if so -> save the #requests of that video from the specific endpoint on table_ep_requests
         for i in range(0, int(infos['n_request_descr'])):
             videos_info = f_list.pop(0)[:-1].split(' ')
             video_id = int(videos_info[0])
             if videos_sizes[video_id] > infos['caches_size']:
                 continue
-            table_endpoints_requests[int(videos_info[1]), int(videos_info[0])] = int(videos_info[2])
+            table_ep_requests[int(videos_info[1]), int(videos_info[0])] = int(videos_info[2])
 
+        # caches data
         np.savez(pickle_files_path['endpoints_objects'],
                  endpoints_latency_data_center=endpoints_latency_data_center,
-                 table_endpoints_caches=table_endpoints_caches,
-                 table_endpoints_requests=table_endpoints_requests)
+                 table_endpoints_caches=table_ep_cchs,
+                 table_endpoints_requests=table_ep_requests)
 
     print 'Data loaded!'
 
-    if data is not None and use_cached_data:
+    if use_cached_data:
         data = np.load(pickle_files_path['calculation_objects'])
         matrix_caches_requests = data['matrix_caches_requests']
     else:
         matrix_caches_requests = np.zeros(shape=(infos['n_videos'], infos['n_caches']), dtype='int')
 
-        total_latency_dataCenter_matrix = table_endpoints_requests * np.transpose(endpoints_latency_data_center)[:, None]
+        total_latency_dataCenter_matrix = table_ep_requests * np.transpose(endpoints_latency_data_center)[:, None]
 
         print 'Start calculations...'
 
-        for i in range(0, table_endpoints_requests.shape[1]):
-            x = table_endpoints_requests[:, i]
+        for i in range(0, table_ep_requests.shape[1]):
+            x = table_ep_requests[:, i]
             latency_dataCenter = total_latency_dataCenter_matrix[:, i]
-            tmp_matrix = latency_dataCenter[:, None] - table_endpoints_caches * x[:, None]
+            tmp_matrix = latency_dataCenter[:, None] - table_ep_cchs * x[:, None]
             matrix_caches_requests[i, :] = np.sum(tmp_matrix, axis=0)
 
         print 'Almost done...'
@@ -131,16 +151,41 @@ def main():
     tmp_matrix = np.unravel_index(tmp_matrix, matrix_caches_requests.shape)
     index_matrix_caches_requests_sorted = np.vstack(tmp_matrix).T
 
+    del tmp_matrix
+    del matrix_caches_requests
+
+    import gc
+    gc.collect()
+
     caches = np.zeros(infos['n_caches'])
     caches_videos_id = [[] for i in range(infos['n_caches'])]
 
-    print 'Writting output...'
+    print 'Just some more calculations...'
 
-    for request_cache in index_matrix_caches_requests_sorted:
-        print matrix_caches_requests[request_cache]
+    # print table_ep_requests_cpy
+    while True:
+        request_cache = index_matrix_caches_requests_sorted[0]
+        if index_matrix_caches_requests_sorted.shape[0] <= 1:
+            break
+        index_matrix_caches_requests_sorted = index_matrix_caches_requests_sorted[1:]
+        ep_of_cch = np.nonzero(table_ep_cchs[:, request_cache[1]])[0]
+        # print ep_of_cch
+        v_reqs = np.nonzero(table_ep_requests[:, request_cache[0]])[0]
+        # print v_reqs
+        v_reqs_to_rm = np.intersect1d(ep_of_cch, v_reqs, assume_unique=True)
+        # print v_reqs_to_rm
+
+        if v_reqs_to_rm.size <= 0:
+            # print 'ok ;-)'
+            continue
+        # print table_ep_requests_cpy[:, request_cache[1]]
         if caches[request_cache[1]] + videos_sizes[request_cache[0]] <= infos['caches_size']:
             caches[request_cache[1]] += videos_sizes[request_cache[0]]
             (caches_videos_id[request_cache[1]]).append(request_cache[0])
+            table_ep_requests[:, request_cache[0]][v_reqs_to_rm] = 0
+            # print table_ep_requests_cpy[:, request_cache[1]]
+
+    print 'Writting output...'
 
     f_out = open('output/' + file_name + '.out', 'w')
     f_out.write(str(len(caches)) + '\n')
@@ -156,10 +201,13 @@ if __name__ == '__main__':
 
 ############  tests ##############
 
-# a = np.array([[1, 2, 4, 2],
-#               [3, 2, 1, 1]])
-# b = np.array([[2, 3],
-#               [1, 2]])
+# a = np.array([1, 2, 4, 2,
+#               3, 2, 1, 1])
+# b = np.array([[1, 2],
+#               [1, 0]])
+# a[b[0, :]] = 0
+# print a
+
 #
 # c = 15 * [3]
 # print c
@@ -194,10 +242,6 @@ if __name__ == '__main__':
 #
 # print '(', nonzeros[0, index], ',', nonzeros[1, index], ')'
 
-# a = np.array([[1, 2, 4, 2],
-#               [3, 2, 1, 1]])
-# b = np.array([[2, 3],
-#               [1, 2]])
 #
 # x = np.transpose(b[:, 0])
 # print x[:, None] - a
