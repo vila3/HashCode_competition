@@ -10,6 +10,12 @@ def pickles_files_path(file_name, file_path=''):
     return "tmp/" + file_path + "/" + file_name + ".npz"
 
 
+def get_index_sort_array_by_desc(array_unsorted):
+    tmp_matrix = (-array_unsorted).argsort(axis=None, kind='mergesort')
+    tmp_matrix = np.unravel_index(tmp_matrix, array_unsorted.shape)
+    return np.vstack(tmp_matrix).T
+
+
 def main():
     print 'Start...'
 
@@ -128,62 +134,33 @@ def main():
 
     print 'Data loaded!'
 
-    if use_cached_data:
-        data = np.load(pickle_files_path['calculation_objects'])
-        matrix_caches_requests = data['matrix_caches_requests']
-    else:
-        matrix_caches_requests = np.zeros(shape=(infos['n_videos'], infos['n_caches']), dtype='int')
-
-        total_latency_dataCenter_matrix = table_ep_requests * np.transpose(endpoints_latency_data_center)[:, None]
-
-        print 'Start calculations...'
-
-        for i in range(0, table_ep_requests.shape[1]):
-            x = table_ep_requests[:, i]
-            latency_dataCenter = total_latency_dataCenter_matrix[:, i]
-            tmp_matrix = latency_dataCenter[:, None] - table_ep_cchs * x[:, None]
-            matrix_caches_requests[i, :] = np.sum(tmp_matrix, axis=0)
-
-        print 'Almost done...'
-        np.savez(pickle_files_path['calculation_objects'], matrix_caches_requests=matrix_caches_requests)
-
-    tmp_matrix = (-matrix_caches_requests).argsort(axis=None, kind='mergesort')
-    tmp_matrix = np.unravel_index(tmp_matrix, matrix_caches_requests.shape)
-    index_matrix_caches_requests_sorted = np.vstack(tmp_matrix).T
-
-    del tmp_matrix
-    del matrix_caches_requests
-
-    import gc
-    gc.collect()
+    import time
+    t0 = time.time()
+    idx_sorted_table_ep_requests = get_index_sort_array_by_desc(table_ep_requests)
+    print 'Sort take:', time.time() - t0
 
     caches_ocup_size = np.zeros(infos['n_caches'])
     caches_videos_id = [[] for i in range(infos['n_caches'])]
 
-    print 'Just some more calculations...'
-
-    # print table_ep_requests_cpy
-    while True:
-        request_cache = index_matrix_caches_requests_sorted[0]
-        if index_matrix_caches_requests_sorted.shape[0] <= 1:
-            break
-        index_matrix_caches_requests_sorted = index_matrix_caches_requests_sorted[1:]
-        ep_of_cch = np.nonzero(table_ep_cchs[:, request_cache[1]])[0]
-        # print ep_of_cch
-        v_reqs = np.nonzero(table_ep_requests[:, request_cache[0]])[0]
-        # print v_reqs
-        v_reqs_to_rm = np.intersect1d(ep_of_cch, v_reqs, assume_unique=True)
-        # print v_reqs_to_rm
-
-        if v_reqs_to_rm.size <= 0:
-            # print 'ok ;-)'
-            continue
-        # print table_ep_requests_cpy[:, request_cache[1]]
-        if caches_ocup_size[request_cache[1]] + videos_sizes[request_cache[0]] <= infos['caches_size']:
-            caches_ocup_size[request_cache[1]] += videos_sizes[request_cache[0]]
-            (caches_videos_id[request_cache[1]]).append(request_cache[0])
-            table_ep_requests[:, request_cache[0]][v_reqs_to_rm] = 0
-            # print table_ep_requests_cpy[:, request_cache[1]]
+    print idx_sorted_table_ep_requests.shape[0]
+    i = 0
+    t0 = time.time()
+    for ep_req_ids in idx_sorted_table_ep_requests:
+        i += 1
+        if i % 10000 == 0:
+            print 'Time left:', ((idx_sorted_table_ep_requests.shape[0] - i)/10000.0) * (time.time() - t0)
+            t0 = time.time()
+        cchs_of_ep = table_ep_cchs[ep_req_ids[0], :]
+        idx_cchs_of_ep_sorted = np.argsort(cchs_of_ep)
+        idx_cchs_of_ep_sorted = idx_cchs_of_ep_sorted[np.in1d(idx_cchs_of_ep_sorted, np.nonzero(cchs_of_ep))]
+        # cchs_of_ep_sorted = cchs_of_ep[idx_cchs_of_ep_sorted] <- get caches time sorted
+        for idx_cchs in idx_cchs_of_ep_sorted:
+            if ep_req_ids[1] in caches_videos_id[idx_cchs]:
+                break
+            if caches_ocup_size[idx_cchs] + videos_sizes[ep_req_ids[1]] <= infos['caches_size']:
+                caches_ocup_size[idx_cchs] += videos_sizes[ep_req_ids[1]]
+                (caches_videos_id[idx_cchs]).append(ep_req_ids[1])
+                break
 
     print 'Writting output...'
 
@@ -201,8 +178,11 @@ if __name__ == '__main__':
 
 ############  tests ##############
 
-# a = np.array([1, 2, 4, 2,
+# a = np.array([8, 2, 0, 2,
 #               3, 2, 1, 1])
+# print (8, 2) in a
+# print np.argwhere(a == 0 )
+
 # b = np.array([[1, 2],
 #               [1, 0]])
 # a[b[0, :]] = 0
